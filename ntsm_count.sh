@@ -2,21 +2,23 @@
 # ntsm_count.sh - ntsm k-mer counts from an aligned BAM/CRAM, reading only the
 # site regions instead of streaming the whole file.
 #
-#   ntsm_count.sh -g hg19|hg38 -s human_sites_n10.fa -b ntsm_sites.BUILD.bed [options] sample.bam [more.bam|.cram ...]
+#   ntsm_count.sh -s FASTA -b BED [options] sample.bam [more.bam|.cram ...]
 #
-#   -g BUILD  hg19 (UCSC hg19, b37, hs37d5) or hg38; must match each input's chr1 length
 #   -s FASTA  ntsm site FASTA (human_sites_n10.fa)
-#   -b BED    site BED for BUILD (ntsm_sites.hg19.bed or ntsm_sites.hg38.bed)
+#   -b BED    SNP-site BED4 matching the input assembly and the site FASTA
 #   -r REF    reference FASTA the reads were aligned to, faidx-indexed; CRAM only
 #   -o DIR    output directory (default: current directory)
 #   -t N      samtools threads (default 4)
+#
+# The BED supplies the coordinates; the reference assembly is not checked.
+# Contig-name conversion (chr1 vs 1) does not convert genomic coordinates.
 #
 # Output per input: DIR/{basename}.counts.txt (the ntsmCount table, ready for
 # ntsmEval) and DIR/{basename}.counts.log.  Inputs must be coordinate-sorted;
 # a missing or stale index is rebuilt.  Needs samtools and ntsmCount on PATH.
 set -euo pipefail
 usage() {
-  sed -n '2,16p' "$0" >&2
+  awk 'NR==1{next} /^#/{print; next} {exit}' "$0" >&2
   exit 1
 }
 die() {
@@ -30,18 +32,16 @@ sample() {
   echo "${b%.cram}"
 }
 
-BUILD=
 SITES=
 REF=
 BED=
 OUT=.
 T=4
-while getopts "g:s:r:b:o:t:h" o; do case $o in
-  g) BUILD=$OPTARG ;; s) SITES=$OPTARG ;; r) REF=$OPTARG ;; b) BED=$OPTARG ;;
+while getopts "s:r:b:o:t:h" o; do case $o in
+  s) SITES=$OPTARG ;; r) REF=$OPTARG ;; b) BED=$OPTARG ;;
   o) OUT=$OPTARG ;; t) T=$OPTARG ;; *) usage ;; esac done
 shift $((OPTIND - 1))
-if [ $# -lt 1 ] || [ -z "$BUILD" ] || [ -z "$SITES" ] || [ -z "$BED" ]; then usage; fi
-case $BUILD in hg19 | hg38) ;; *) die "-g must be hg19 or hg38" ;; esac
+if [ $# -lt 1 ] || [ -z "$SITES" ] || [ -z "$BED" ]; then usage; fi
 [ -s "$SITES" ] || die "site FASTA not found: $SITES"
 [ -s "$BED" ] || die "site BED not found or empty: $BED"
 [ -z "$REF" ] || [ -s "$REF.fai" ] || die "$REF is not faidx-indexed (samtools faidx $REF)"
@@ -79,18 +79,9 @@ for IN in "$@"; do
   refopt=()
   case $IN in *.cram) refopt=(--reference "$REF") ;; esac
 
-  # build check; BED contig names in the style of this file (chr1 vs 1), restricted to its contigs
+  # BED contig names in the style of this file (chr1 vs 1), restricted to its contigs
   samtools view -H ${refopt[@]+"${refopt[@]}"} "$IN" |
-    awk '$1=="@SQ"{for(i=2;i<=NF;i++){if($i~/^SN:/)s=substr($i,4); if($i~/^LN:/)l=substr($i,4)} print s"\t"l}' >"$tmp/ctg.txt"
-  len=$(awk '$1=="1"||$1=="chr1"{print $2; exit}' "$tmp/ctg.txt")
-  case $len in
-    249250621) hb=hg19 ;; 248956422) hb=hg38 ;;
-    "")
-      hb=$BUILD
-      echo "$base: no chr1 in header, build not checked" >&2
-      ;;
-    *) hb="an unknown build (chr1 length $len)" ;; esac
-  [ "$hb" = "$BUILD" ] || die "$base: header is $hb, not -g $BUILD"
+    awk '$1=="@SQ"{for(i=2;i<=NF;i++) if($i~/^SN:/) print substr($i,4)}' >"$tmp/ctg.txt"
   awk -v OFS='\t' 'NR==FNR{c[$1]; next}
     { n=$1; sub(/^chr/,"",n); if(!(n in c)) n="chr" n; if(n in c) print n,$2,$3,$4 }' \
     "$tmp/ctg.txt" "$BED" >"$tmp/sites.bed"
@@ -106,7 +97,6 @@ for IN in "$@"; do
   {
     echo "input: $IN"
     echo "index: $idx"
-    echo "build: $BUILD"
     echo "sites: $SITES"
     echo "bed: $BED ($nreg regions used of $nbed)"
   } >"$log"
