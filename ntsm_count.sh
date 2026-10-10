@@ -26,10 +26,9 @@ die() {
   exit 1
 }
 sample() {
-  local b
-  b=$(basename "$1")
+  local b=${1##*/}
   b=${b%.bam}
-  echo "${b%.cram}"
+  printf '%s\n' "${b%.cram}"
 }
 
 SITES=
@@ -100,7 +99,7 @@ for IN in "$@"; do
     echo "sites: $SITES"
     echo "bed: $BED ($nreg regions used of $nbed)"
   } >"$log"
-  samtools view -@ "$T" -u -M -L "$tmp/sites.bed" -X ${refopt[@]+"${refopt[@]}"} "$IN" "$idx" 2>>"$log" |
+  samtools view -@ "$T" -u -M -F 0x900 -L "$tmp/sites.bed" -X ${refopt[@]+"${refopt[@]}"} "$IN" "$idx" 2>>"$log" |
     samtools fastq - 2>>"$log" |
     ntsmCount -s "$SITES" /dev/stdin >"$tmp/counts.txt" 2>>"$log" ||
     die "$base: extraction failed, see $log"

@@ -54,14 +54,14 @@ For each input the script:
 
 1. Converts the BED to the input's contig names (`chr1` or `1`) and drops contigs the header lacks. Exits with an error if no regions remain.
 2. Indexes the input if it has no index newer than the file (writes `<input>.bai`/`.crai` next to it).
-3. Runs `samtools view -M -L sites.bed | samtools fastq | ntsmCount`.
+3. Runs `samtools view -u -M -F 0x900 -L sites.bed | samtools fastq | ntsmCount`.
 4. Writes `DIR/<basename>.counts.txt` (only on success, so a failed run leaves no partial table) and `DIR/<basename>.counts.log` (regions used, reads extracted, sites with counts). It warns if under 10% of sites have counts.
 
 ### Caveats
 
 - `errorRate` from `ntsmEval` is not meaningful on extracted reads. `score`, `cov` and genotypes are unaffected.
 - Only reads aligned over the sites are counted. Unmapped reads, or reads carrying site k-mers that aligned elsewhere, are missed; a full-FASTQ `ntsmCount` run would see them.
-- `samtools fastq` drops secondary and supplementary alignments (`-F 0x900`). Duplicates are kept.
+- `samtools view -F 0x900` excludes secondary and supplementary alignments before piping to `samtools fastq`, which also excludes them by default. Duplicates are kept.
 - `sample.bam` and `sample.cram` share an output basename, so passing both in one call is rejected.
 
 ## Site BEDs
